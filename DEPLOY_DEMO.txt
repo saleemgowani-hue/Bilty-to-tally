@@ -1,0 +1,33 @@
+SN SOFTECH - FREIGHT BILTY-TO-TALLY  ·  ONLINE DEMO
+=====================================================
+
+Put this demo on the internet once, then open it on any tablet/phone.
+
+A. GitHub (free) - holds the files
+   1. Go to github.com -> sign up / sign in.
+   2. "+" (top right) -> New repository -> name: sn-bilty-demo
+      -> choose PRIVATE -> Create repository.
+   3. On the new repo page click "uploading an existing file".
+   4. Open this zip on your PC, select EVERYTHING inside the folder
+      sn-bilty-demo (app.py, requirements.txt, the folders database,
+      services, utils, demo ...) and drag it into the browser.
+   5. Press "Commit changes".
+
+B. Streamlit Community Cloud (free) - runs the demo
+   1. Go to share.streamlit.io -> "Continue with GitHub" and allow access
+      (also to private repositories).
+   2. "Create app" -> "Deploy a public app from GitHub".
+   3. Repository: <your-name>/sn-bilty-demo   Branch: main
+      Main file path: app.py
+      App URL: choose a name, e.g. sn-bilty-demo
+   4. Deploy. The first start takes 2-5 minutes.
+
+C. On the tablet
+   Open https://<the-name-you-chose>.streamlit.app in Chrome
+   -> menu (three dots) -> "Add to Home screen".
+   Open it once before you reach the customer - an idle demo "sleeps"
+   and needs a minute to wake up.
+
+In the demo: press "Use the demo sample Excel" on Import & Generate.
+"Reset demo" (left side) puts all demo settings back.
+Your licence secret and key generator are NOT in this demo.
