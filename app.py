@@ -1225,12 +1225,14 @@ def dashboard_page(session, company: Company) -> None:
         st.markdown(_kpi_card("Total freight value", f"₹{total_amount:,.0f}", "#d97706"), unsafe_allow_html=True)
     with k4:
         st.markdown(
-            _kpi_card("Licence days left", days_left or "—", "#7c3aed"),
+            _kpi_card("Licence days left", "Demo" if settings.DEMO_MODE else (days_left or "—"), "#7c3aed"),
             unsafe_allow_html=True,
         )
 
     st.write("")
-    if not status.is_valid:
+    if settings.DEMO_MODE:
+        pass
+    elif not status.is_valid:
         st.warning(status.message)
     elif status.is_expiring_soon:
         st.warning(status.message)
