@@ -88,6 +88,13 @@ DEFAULT_LEDGER_NAMES = {
     "item_unit": "MT",           # unit of measure for the weight
     # Voucher number = bilty number ("yes"/"no"), for Sales and for the
     # Payment/Journal vouchers of the same bilty.
+    # Other1 / Other2 columns: "advance" = money already given to the truck
+    # owner (reduces Transporting Expenses, posted as a Payment like cash
+    # from office); "deduction" = kept back from the owner (credited to the
+    # Other1/Other2 ledgers as income).
+    "other_mode": "advance",
+    "other1_from": "Cash",       # ledger the Other1 advance was paid from
+    "other2_from": "Cash",
     "vchno_sales": "yes",
     "vchno_others": "no",
 }
@@ -112,7 +119,7 @@ DEFAULT_POSTING_STYLE = "transporter"
 # full freight amount. The choice travels inside the ledger-names dict
 # under POST_KINDS_KEY so every builder sees the same setting.
 VOUCHER_KINDS = {
-    "PAY": "Payment - Cash from office (Other Expenses Dr / Cash Cr)",
+    "PAY": "Payment - Cash from office, Other1/Other2 advances (Other Expenses Dr / Cash Cr)",
     "TDS": "Journal - TDS (TDS Dr / Party Cr)",
     "DSL": "Journal - Diesel + Cash from pump (Diesel/Other Exp. Dr / Pump Cr)",
     "TRN": "Journal - Transporting Expenses (Transporting Exp. Dr / Owner Cr)",
@@ -124,8 +131,11 @@ POST_KINDS_KEY = "_post_kinds"
 def enabled_kinds(names: Dict[str, str]) -> set:
     value = (names or {}).get(POST_KINDS_KEY)
     if value is None or value == "":
-        return set(VOUCHER_KINDS)
-    return {k for k in str(value).split(",") if k in VOUCHER_KINDS} or set()
+        return set(VOUCHER_KINDS) | {"OTH"}
+    kinds = {k for k in str(value).split(",") if k in VOUCHER_KINDS}
+    if "PAY" in kinds:
+        kinds.add("OTH")     # Other1/Other2 advance payments follow the Payment switch
+    return kinds
 DEFAULT_OWNER_GROUP = "Sundry Debtors"
 DEFAULT_PUMP_GROUP = "Sundry Creditors"
 
@@ -167,6 +177,7 @@ class ProcessedRow:
     occurrence: int = 1             # 2, 3.. when the same bilty+date repeats in one file
     raw: Dict[str, object] = field(default_factory=dict)   # cell values as read
     edited: bool = False            # corrected on screen before posting
+    other_advances: List[tuple] = field(default_factory=list)  # (paid-from ledger, amount)
     weight: float = 0.0
     rate: float = 0.0
     item_name: str = ""
@@ -308,17 +319,17 @@ HEADER_SYNONYMS: Dict[str, List[str]] = {
     "shipment_no": ["shipment no", "shipment", "gpno", "gp no"],
     "from_place": ["from"],
     "to_place": ["to", "destination"],
-    "item_name": ["item", "item name", "goods", "material"],
+    "item_name": ["item name", "stock item"],
     "weight": ["wt", "weight"],
     "rate": ["rate"],
     "amount": ["amt", "amount", "freight", "freight amount"],
     "tds": ["tds"],
-    "commission": ["comm", "commission"],
+    "commission": ["comm", "commission", "commision", "comission"],
     "discount": ["disc", "discount"],
     "pump_name": ["petrol pump", "pump", "pump name"],
     "diesel": ["diesel"],
     "slip_no": ["slip no", "slipno", "slip"],
-    "cash_pump": ["cash from pump", "pump cash"],
+    "cash_pump": ["cash from pump", "pump cash", "diesel-cash", "diesel cash", "cash diesel"],
     "cash_office": ["cash from office", "office cash"],
     "other1": ["other1", "other 1"],
     "other2": ["other2", "other 2"],
@@ -521,10 +532,18 @@ def build_row(source_row: int, values: Dict[str, object], names: Dict[str, str],
     row.diesel = diesel
     row.cash_pump = cash_pump
     row.cash_office = cash_office
-    for key, amt in (("discount", disc), ("other1", other1), ("other2", other2)):
-        if amt:
+    advance_mode = names.get("other_mode", "advance") == "advance"
+    if disc:
+        row.other_deductions.append((names["discount"], disc))
+    for key, amt in (("other1", other1), ("other2", other2)):
+        if not amt:
+            continue
+        if advance_mode:
+            row.other_advances.append((names.get(f"{key}_from") or names["cash"], amt))
+        else:
             row.other_deductions.append((names[key], amt))
-    row.transport_amount = round(amount - comm - diesel - cash_pump - cash_office, 2)
+    advances = sum(a for _, a in row.other_advances)
+    row.transport_amount = round(amount - comm - diesel - cash_pump - cash_office - advances, 2)
     row.owner_payable = round(
         row.transport_amount - sum(a for _, a in row.other_deductions), 2
     )
@@ -575,6 +594,7 @@ EDITABLE_FIELDS = [
     ("amount", "Freight Amt"), ("tds", "TDS"), ("commission", "Comm"),
     ("pump_name", "Petrol Pump"), ("diesel", "Diesel"), ("slip_no", "Slip No"),
     ("cash_pump", "Cash from Pump"), ("cash_office", "Cash from Office"),
+    ("other1", "Other1"), ("other2", "Other2"),
 ]
 
 
@@ -601,6 +621,8 @@ def editor_records(rows: List[ProcessedRow]) -> List[dict]:
             "Slip No": r.slip_no,
             "Cash from Pump": r.cash_pump,
             "Cash from Office": r.cash_office,
+            "Other1": _num((r.raw or {}).get("other1")),
+            "Other2": _num((r.raw or {}).get("other2")),
             "Transporting Exp.": r.transport_amount,
             "Problem": r.problem or "",
         })
@@ -966,6 +988,14 @@ def transporter_vouchers(r: "ProcessedRow", names: Dict[str, str], ctag: str = "
     if r.cash_office:
         add("Payment", "PAY", r.cash_office, f"Cash paid from office to {r.owner} - {tag}",
             _dr(names["other_exp"], r.cash_office) + _cr(names["cash"], r.cash_office))
+
+    if r.other_advances:
+        total = round(sum(a for _, a in r.other_advances), 2)
+        cr = {}
+        for ledger, amt in r.other_advances:
+            cr[ledger] = round(cr.get(ledger, 0) + amt, 2)
+        add("Payment", "OTH", total, f"Other advance (Other1/Other2) paid to {r.owner} - {tag}",
+            _dr(names["other_exp"], total) + "".join(_cr(l, a) for l, a in cr.items()))
 
     if r.tds:
         add("Journal", "TDS", r.tds, f"TDS deducted by {r.party} on freight - {tag}",

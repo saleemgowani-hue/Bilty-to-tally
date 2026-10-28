@@ -46,6 +46,9 @@ LEDGER_NAME_KEYS = {
     "sales_mode": "sales_mode",
     "item_name": "sales_item_name",
     "item_unit": "sales_item_unit",
+    "other_mode": "other_mode",
+    "other1_from": "ledger_other1_from",
+    "other2_from": "ledger_other2_from",
     "vchno_sales": "vchno_sales",
     "vchno_others": "vchno_others",
 }

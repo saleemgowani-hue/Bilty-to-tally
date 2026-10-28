@@ -421,6 +421,28 @@ def ledger_tab(session, company: Company) -> None:
             st.caption("Map the Weight and Rate columns (and Item, if your Excel has one) in Column Mapping.")
 
     if style == "transporter":
+        st.markdown("**Other1 / Other2 columns**")
+        om_opts = ["advance", "deduction"]
+        other_mode = st.radio(
+            "Other1 / Other2 columns", om_opts,
+            index=om_opts.index(names.get("other_mode", "advance")) if names.get("other_mode", "advance") in om_opts else 0,
+            format_func=lambda m: {
+                "advance": "Advance already given to the truck owner - reduces Transporting Expenses "
+                           "(Transporting Exp. = Amt − Comm − Diesel − Diesel cash − Office cash − Other1 − Other2) "
+                           "and is posted as Payment: Other Expenses Dr / paid-from ledger Cr",
+                "deduction": "Deduction kept back from the owner - credited to the Other deduction 1/2 ledgers",
+            }[m],
+            label_visibility="collapsed", key="other_mode_radio",
+        )
+        new_names["other_mode"] = other_mode
+        if other_mode == "advance":
+            o1, o2 = st.columns(2)
+            new_names["other1_from"] = o1.text_input(
+                "Other1 paid from (Cash / Bank ledger)", value=names.get("other1_from", "Cash"), key="other1_from")
+            new_names["other2_from"] = o2.text_input(
+                "Other2 paid from (Cash / Bank ledger)", value=names.get("other2_from", "Cash"), key="other2_from")
+
+    if style == "transporter":
         st.markdown("**Voucher number**")
         v1, v2 = st.columns(2)
         new_names["vchno_sales"] = "yes" if v1.checkbox(
@@ -811,7 +833,7 @@ def import_page(session, company: Company) -> None:
             column_config={
                 "Date": st.column_config.DateColumn(format="DD-MM-YYYY"),
                 "Freight Amt": money, "TDS": money, "Comm": money, "Diesel": money,
-                "Cash from Pump": money, "Cash from Office": money,
+                "Cash from Pump": money, "Cash from Office": money, "Other1": money, "Other2": money,
             },
         )
         records = edited_df.to_dict("records")
