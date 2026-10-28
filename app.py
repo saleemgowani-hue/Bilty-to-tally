@@ -38,6 +38,8 @@ from services.bilty_tally_service import (
     number_occurrences,
     guess_mapping,
     match_mappings,
+    duplicate_columns,
+    duplicate_message,
     VOUCHER_KINDS,
     enabled_kinds,
 )
@@ -319,13 +321,21 @@ def mapping_tab(session, company: Company) -> None:
                 f"{label}{star}", value=default, key=f"map_text_{picked}_{field_name}",
             )
 
+    live_dups = duplicate_columns(new_mapping)
+    if live_dups:
+        st.warning("⚠️ " + duplicate_message(live_dups) + " - that amount would be counted twice.")
+
     c1, c2 = st.columns([3, 1])
     with c1:
         if st.button("Save column mapping", type="primary", use_container_width=True):
             missing = validate_mapping(new_mapping)
             name = (layout_name or "").strip()
+            dups = duplicate_columns(new_mapping)
             if missing:
                 st.error("Still missing a column for: " + ", ".join(missing))
+            elif dups:
+                st.error("Each Excel column can be used for only one field - " + duplicate_message(dups)
+                         + ". Pick the right column for each field and save again.")
             elif not name or name == NEW_LAYOUT:
                 st.error("Give this layout a name.")
             else:
@@ -371,7 +381,10 @@ def ledger_tab(session, company: Company) -> None:
             "freight": "Freight sales ledger",
             "tds": "TDS ledger",
             "diesel_exp": "Diesel expenses ledger",
-            "other_exp": "Other expenses ledger (cash from office / pump)",
+            "office_exp": "Cash from office ledger",
+            "other_exp": "Cash from pump ledger (in the diesel journal)",
+            "other1_exp": "Other1 expense ledger",
+            "other2_exp": "Other2 expense ledger",
             "transport_exp": "Transporting expenses ledger",
             "cash": "Cash ledger",
             "discount": "Discount ledger",
@@ -767,6 +780,14 @@ def import_page(session, company: Company) -> None:
                 st.error(f"Headings don't match layout “{layout}” - missing: {', '.join(info[3])}.")
                 continue
             mapping = layouts[layout]
+            dups = duplicate_columns(mapping)
+            if dups:
+                st.error(
+                    f"Layout “{layout}” has a mistake: {duplicate_message(dups)}, so that amount would be "
+                    "counted twice and balances will not match. Go to Settings → Column Mapping, choose this "
+                    "layout, pick the right column for each field and save."
+                )
+                continue
             unit_names = dict(ledger_names)
             if style == "transporter":
                 # Party for this sheet: starts from the party last used with this

@@ -93,6 +93,9 @@ DEFAULT_LEDGER_NAMES = {
     # from office); "deduction" = kept back from the owner (credited to the
     # Other1/Other2 ledgers as income).
     "other_mode": "advance",
+    "office_exp": "CASH FROM OFFICE",     # Dr ledger for cash paid from office
+    "other1_exp": "OTHER EXPENSES 1",     # Dr ledger for the Other1 advance
+    "other2_exp": "OTHER EXPENSES 2",     # Dr ledger for the Other2 advance
     "other1_from": "Cash",       # ledger the Other1 advance was paid from
     "other2_from": "Cash",
     "vchno_sales": "yes",
@@ -131,10 +134,10 @@ POST_KINDS_KEY = "_post_kinds"
 def enabled_kinds(names: Dict[str, str]) -> set:
     value = (names or {}).get(POST_KINDS_KEY)
     if value is None or value == "":
-        return set(VOUCHER_KINDS) | {"OTH"}
+        return set(VOUCHER_KINDS) | {"OT1", "OT2", "OTH"}
     kinds = {k for k in str(value).split(",") if k in VOUCHER_KINDS}
     if "PAY" in kinds:
-        kinds.add("OTH")     # Other1/Other2 advance payments follow the Payment switch
+        kinds |= {"OT1", "OT2", "OTH"}   # Other1/Other2 advance payments follow the Payment switch
     return kinds
 DEFAULT_OWNER_GROUP = "Sundry Debtors"
 DEFAULT_PUMP_GROUP = "Sundry Creditors"
@@ -177,7 +180,7 @@ class ProcessedRow:
     occurrence: int = 1             # 2, 3.. when the same bilty+date repeats in one file
     raw: Dict[str, object] = field(default_factory=dict)   # cell values as read
     edited: bool = False            # corrected on screen before posting
-    other_advances: List[tuple] = field(default_factory=list)  # (paid-from ledger, amount)
+    other_advances: List[tuple] = field(default_factory=list)  # ("other1"/"other2", paid-from ledger, amount)
     weight: float = 0.0
     rate: float = 0.0
     item_name: str = ""
@@ -404,6 +407,21 @@ def safe_default_index(options: List[str], default: str) -> int:
     return 0
 
 
+def duplicate_columns(mapping: Dict[str, str]) -> List[tuple]:
+    """Excel columns picked for more than one field, e.g. the "diesel"
+    column chosen for both Diesel and Cash from pump - which makes that
+    amount count twice. [(column, [field labels])]."""
+    used: Dict[str, List[str]] = {}
+    for field_name, header in mapping.items():
+        if header and field_name in FIELDS:
+            used.setdefault(header.strip(), []).append(FIELDS[field_name][0])
+    return [(h, labels) for h, labels in used.items() if len(labels) > 1]
+
+
+def duplicate_message(dups: List[tuple]) -> str:
+    return "; ".join(f"column “{h}” is chosen for {' AND '.join(labels)}" for h, labels in dups)
+
+
 def validate_mapping(mapping: Dict[str, str]) -> List[str]:
     """Which required fields have no column assigned."""
     missing = []
@@ -539,10 +557,10 @@ def build_row(source_row: int, values: Dict[str, object], names: Dict[str, str],
         if not amt:
             continue
         if advance_mode:
-            row.other_advances.append((names.get(f"{key}_from") or names["cash"], amt))
+            row.other_advances.append((key, names.get(f"{key}_from") or names["cash"], amt))
         else:
             row.other_deductions.append((names[key], amt))
-    advances = sum(a for _, a in row.other_advances)
+    advances = sum(a for _, _, a in row.other_advances)
     row.transport_amount = round(amount - comm - diesel - cash_pump - cash_office - advances, 2)
     row.owner_payable = round(
         row.transport_amount - sum(a for _, a in row.other_deductions), 2
@@ -961,7 +979,8 @@ def transporter_vouchers(r: "ProcessedRow", names: Dict[str, str], ctag: str = "
     """(voucher type, xml, remote id, amount) for one row, in the same order they appear in
     the Tally Day Book when entered by hand:
 
-      Payment  OTHER EXPENSES Dr / Cash Cr            - cash from office
+      Payment  CASH FROM OFFICE Dr / Cash Cr          - cash from office
+      Payment  OTHER EXPENSES 1 / 2 Dr / Cash Cr      - Other1 / Other2 advances
       Journal  TDS Dr / Party Cr                       - TDS deducted by party
       Journal  DIESEL EXPENSES Dr (+ OTHER EXPENSES Dr - cash from pump)
                / Petrol pump Cr                        - diesel slip
@@ -987,15 +1006,14 @@ def transporter_vouchers(r: "ProcessedRow", names: Dict[str, str], ctag: str = "
 
     if r.cash_office:
         add("Payment", "PAY", r.cash_office, f"Cash paid from office to {r.owner} - {tag}",
-            _dr(names["other_exp"], r.cash_office) + _cr(names["cash"], r.cash_office))
+            _dr(names.get("office_exp") or names["other_exp"], r.cash_office) + _cr(names["cash"], r.cash_office))
 
-    if r.other_advances:
-        total = round(sum(a for _, a in r.other_advances), 2)
-        cr = {}
-        for ledger, amt in r.other_advances:
-            cr[ledger] = round(cr.get(ledger, 0) + amt, 2)
-        add("Payment", "OTH", total, f"Other advance (Other1/Other2) paid to {r.owner} - {tag}",
-            _dr(names["other_exp"], total) + "".join(_cr(l, a) for l, a in cr.items()))
+    for key, paid_from, amt in r.other_advances:
+        exp = names.get(f"{key}_exp") or names["other_exp"]
+        label = "Other1" if key == "other1" else "Other2"
+        add("Payment", "OT1" if key == "other1" else "OT2", amt,
+            f"{label} advance paid to {r.owner} - {tag}",
+            _dr(exp, amt) + _cr(paid_from, amt))
 
     if r.tds:
         add("Journal", "TDS", r.tds, f"TDS deducted by {r.party} on freight - {tag}",
@@ -1055,6 +1073,9 @@ def _transporter_masters(rows: List["ProcessedRow"], names: Dict[str, str]) -> L
         names["tds"]: "Loans & Advances (Asset)",
         names["diesel_exp"]: "Direct Expenses",
         names["other_exp"]: "Indirect Expenses",
+        names.get("office_exp", "CASH FROM OFFICE"): "Indirect Expenses",
+        names.get("other1_exp", "OTHER EXPENSES 1"): "Indirect Expenses",
+        names.get("other2_exp", "OTHER EXPENSES 2"): "Indirect Expenses",
         names["transport_exp"]: "Direct Expenses",
         names["discount"]: "Indirect Incomes",
         names["other1"]: "Indirect Incomes",

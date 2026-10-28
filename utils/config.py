@@ -54,9 +54,11 @@ class Settings:
         "BRAND_TAGLINE", "Smart Software Solutions for Growing Businesses"
     )
     SUPPORT_CONTACT = os.getenv("SUPPORT_CONTACT", "9993199719")
-    APP_VERSION = "1.7.0"
+    APP_VERSION = "1.7.2"
     BUILD_DATE = "2026-10-26"
     CHANGELOG = [
+        ("1.7.2", "Separate ledgers: CASH FROM OFFICE, OTHER EXPENSES 1, OTHER EXPENSES 2"),
+        ("1.7.1", "Warns when one Excel column is mapped to two fields"),
         ("1.7.0", "Other1/Other2 as owner advances: Transporting Exp = Amt-Comm-Diesel-Diesel cash-Office cash-Other1-Other2"),
         ("1.6.0", "Online demo build with sample Excel; customer package now includes all modules"),
         ("1.5.1", "Bilty number as voucher number (Sales by default; Payment/Journal optional)"),
