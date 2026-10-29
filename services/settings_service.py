@@ -68,9 +68,30 @@ def save_posting_style(session: Session, company_id: int, style: str) -> None:
     set_setting(session, company_id, "posting_style", style)
 
 
+_OLD_DEFAULTS = {
+    "ledger_office_exp": "CASH FROM OFFICE",
+    "ledger_other1_exp": "OTHER EXPENSES 1",
+    "ledger_other2_exp": "OTHER EXPENSES 2",
+}
+
+
+def _migrate_ledger_defaults(session: Session, company_id: int) -> None:
+    """v1.7.3: cash from office and Other1/Other2 go to Transporting Expenses
+    by default. Settings saved under v1.7.2 still hold that version's
+    default names - clear those once so the new default applies (a name the
+    user typed himself is kept)."""
+    if get_setting(session, company_id, "ledger_defaults_v", "") == "2":
+        return
+    for key, old in _OLD_DEFAULTS.items():
+        if get_setting(session, company_id, key, "") == old:
+            set_setting(session, company_id, key, "")
+    set_setting(session, company_id, "ledger_defaults_v", "2")
+
+
 def get_ledger_names(session: Session, company_id: int) -> Dict[str, str]:
     from services.bilty_tally_service import DEFAULT_LEDGER_NAMES
 
+    _migrate_ledger_defaults(session, company_id)
     names = dict(DEFAULT_LEDGER_NAMES)
     for field_name, key in LEDGER_NAME_KEYS.items():
         value = get_setting(session, company_id, key, "")

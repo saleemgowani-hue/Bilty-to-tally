@@ -381,10 +381,10 @@ def ledger_tab(session, company: Company) -> None:
             "freight": "Freight sales ledger",
             "tds": "TDS ledger",
             "diesel_exp": "Diesel expenses ledger",
-            "office_exp": "Cash from office ledger",
+            "office_exp": "Cash from office ledger (blank = Transporting expenses)",
             "other_exp": "Cash from pump ledger (in the diesel journal)",
-            "other1_exp": "Other1 expense ledger",
-            "other2_exp": "Other2 expense ledger",
+            "other1_exp": "Other1 ledger (blank = Transporting expenses)",
+            "other2_exp": "Other2 ledger (blank = Transporting expenses)",
             "transport_exp": "Transporting expenses ledger",
             "cash": "Cash ledger",
             "discount": "Discount ledger",
@@ -424,14 +424,15 @@ def ledger_tab(session, company: Company) -> None:
         if sales_mode == "invoice":
             i1, i2 = st.columns(2)
             new_names["item_name"] = i1.text_input(
-                "Item name (when the Excel has no item column)", value=names.get("item_name", "FREIGHT"),
+                "Name of Item in the Sales invoice", value=names.get("item_name", "FREIGHT"),
                 key="sales_item_name",
             )
             new_names["item_unit"] = i2.text_input(
                 "Unit of the weight / Qty (e.g. MT, Ton, Qtl, Kg)", value=names.get("item_unit", "MT"),
                 key="sales_item_unit",
             )
-            st.caption("Map the Weight and Rate columns (and Item, if your Excel has one) in Column Mapping.")
+            st.caption("Every Sales invoice uses this item. Map the Weight and Rate columns in Column Mapping; "
+                       "the goods carried (Poultry Feed etc.) only go into the narration.")
 
     if style == "transporter":
         st.markdown("**Other1 / Other2 columns**")

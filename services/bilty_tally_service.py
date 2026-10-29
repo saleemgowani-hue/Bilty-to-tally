@@ -49,7 +49,7 @@ FIELDS: Dict[str, tuple] = {
     "shipment_no":  ("Shipment No.",                 False),
     "from_place":   ("From (place)",                 False),
     "to_place":     ("To (place)",                   False),
-    "item_name":    ("Item name (stock item, e.g. FREIGHT)", False),
+    "item_name":    ("Goods carried (e.g. Poultry Feed - narration only)", False),
     "weight":       ("Weight (Qty in Sales invoice)", False),
     "rate":         ("Rate (Rate in Sales invoice)",  False),
     "amount":       ("Freight Amount",                True),
@@ -93,9 +93,11 @@ DEFAULT_LEDGER_NAMES = {
     # from office); "deduction" = kept back from the owner (credited to the
     # Other1/Other2 ledgers as income).
     "other_mode": "advance",
-    "office_exp": "CASH FROM OFFICE",     # Dr ledger for cash paid from office
-    "other1_exp": "OTHER EXPENSES 1",     # Dr ledger for the Other1 advance
-    "other2_exp": "OTHER EXPENSES 2",     # Dr ledger for the Other2 advance
+    # Dr ledger for cash paid from office and the Other1/Other2 advances.
+    # Blank = the Transporting Expenses ledger (they are part of the truck hire).
+    "office_exp": "",
+    "other1_exp": "",
+    "other2_exp": "",
     "other1_from": "Cash",       # ledger the Other1 advance was paid from
     "other2_from": "Cash",
     "vchno_sales": "yes",
@@ -322,7 +324,7 @@ HEADER_SYNONYMS: Dict[str, List[str]] = {
     "shipment_no": ["shipment no", "shipment", "gpno", "gp no"],
     "from_place": ["from"],
     "to_place": ["to", "destination"],
-    "item_name": ["item name", "stock item"],
+    "item_name": ["item", "item name", "goods", "material"],
     "weight": ["wt", "weight"],
     "rate": ["rate"],
     "amount": ["amt", "amount", "freight", "freight amount"],
@@ -608,7 +610,7 @@ def number_occurrences(rows: List[ProcessedRow]) -> None:
 # Fields the user may correct on the preview screen, in display order.
 EDITABLE_FIELDS = [
     ("date", "Date"), ("voucher_no", "Bilty"), ("truck_no", "Truck"), ("party", "Party"),
-    ("owner", "Owner"), ("item_name", "Item"), ("weight", "Wt (Qty)"), ("rate", "Rate"),
+    ("owner", "Owner"), ("item_name", "Goods"), ("weight", "Wt (Qty)"), ("rate", "Rate"),
     ("amount", "Freight Amt"), ("tds", "TDS"), ("commission", "Comm"),
     ("pump_name", "Petrol Pump"), ("diesel", "Diesel"), ("slip_no", "Slip No"),
     ("cash_pump", "Cash from Pump"), ("cash_office", "Cash from Office"),
@@ -628,7 +630,7 @@ def editor_records(rows: List[ProcessedRow]) -> List[dict]:
             "Truck": r.truck_no,
             "Party": r.party,
             "Owner": r.owner,
-            "Item": r.item_name,
+            "Goods": r.item_name,
             "Wt (Qty)": r.weight,
             "Rate": r.rate,
             "Freight Amt": r.amount,
@@ -911,7 +913,10 @@ def sales_item(r: "ProcessedRow", names: Dict[str, str]) -> tuple:
     Qty is the Excel weight and Rate the Excel rate; the amount is always
     the Excel amount (weight x rate is often rounded in the register).
     With no weight the line is 1 x amount."""
-    item = r.item_name or names.get("item_name") or "FREIGHT"
+    # Always the freight item (e.g. FREIGHT) - the register's own item
+    # column holds the goods carried (Poultry Feed, DOC...), which only
+    # goes into the narration.
+    item = names.get("item_name") or "FREIGHT"
     unit = names.get("item_unit") or "MT"
     if r.weight > 0:
         rate = r.rate if r.rate > 0 else round(r.amount / r.weight, 2)
@@ -972,6 +977,8 @@ def _row_tag(r: "ProcessedRow") -> str:
         parts.append(f"Shipment {r.shipment_no}")
     if r.from_place or r.to_place:
         parts.append(f"{r.from_place} to {r.to_place}".strip())
+    if r.item_name:
+        parts.append(f"Goods {r.item_name}")
     return " / ".join(parts)
 
 
@@ -979,8 +986,9 @@ def transporter_vouchers(r: "ProcessedRow", names: Dict[str, str], ctag: str = "
     """(voucher type, xml, remote id, amount) for one row, in the same order they appear in
     the Tally Day Book when entered by hand:
 
-      Payment  CASH FROM OFFICE Dr / Cash Cr          - cash from office
-      Payment  OTHER EXPENSES 1 / 2 Dr / Cash Cr      - Other1 / Other2 advances
+      Payment  TRANSPORTING EXPENSES Dr / Cash Cr     - cash from office
+      Payment  TRANSPORTING EXPENSES Dr / Cash Cr     - Other1 / Other2 advances
+               (own ledgers can be set instead in Settings)
       Journal  TDS Dr / Party Cr                       - TDS deducted by party
       Journal  DIESEL EXPENSES Dr (+ OTHER EXPENSES Dr - cash from pump)
                / Petrol pump Cr                        - diesel slip
@@ -1006,10 +1014,10 @@ def transporter_vouchers(r: "ProcessedRow", names: Dict[str, str], ctag: str = "
 
     if r.cash_office:
         add("Payment", "PAY", r.cash_office, f"Cash paid from office to {r.owner} - {tag}",
-            _dr(names.get("office_exp") or names["other_exp"], r.cash_office) + _cr(names["cash"], r.cash_office))
+            _dr(names.get("office_exp") or names["transport_exp"], r.cash_office) + _cr(names["cash"], r.cash_office))
 
     for key, paid_from, amt in r.other_advances:
-        exp = names.get(f"{key}_exp") or names["other_exp"]
+        exp = names.get(f"{key}_exp") or names["transport_exp"]
         label = "Other1" if key == "other1" else "Other2"
         add("Payment", "OT1" if key == "other1" else "OT2", amt,
             f"{label} advance paid to {r.owner} - {tag}",
@@ -1073,9 +1081,7 @@ def _transporter_masters(rows: List["ProcessedRow"], names: Dict[str, str]) -> L
         names["tds"]: "Loans & Advances (Asset)",
         names["diesel_exp"]: "Direct Expenses",
         names["other_exp"]: "Indirect Expenses",
-        names.get("office_exp", "CASH FROM OFFICE"): "Indirect Expenses",
-        names.get("other1_exp", "OTHER EXPENSES 1"): "Indirect Expenses",
-        names.get("other2_exp", "OTHER EXPENSES 2"): "Indirect Expenses",
+        **{names[k]: "Indirect Expenses" for k in ("office_exp", "other1_exp", "other2_exp") if names.get(k)},
         names["transport_exp"]: "Direct Expenses",
         names["discount"]: "Indirect Incomes",
         names["other1"]: "Indirect Incomes",
