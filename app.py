@@ -381,10 +381,11 @@ def ledger_tab(session, company: Company) -> None:
             "freight": "Freight sales ledger",
             "tds": "TDS ledger",
             "diesel_exp": "Diesel expenses ledger",
-            "office_exp": "Cash from office ledger (blank = Transporting expenses)",
+            "office_exp": "Cash from office ledger (Journal, Owner Cr)",
             "other_exp": "Cash from pump ledger (in the diesel journal)",
-            "other1_exp": "Other1 ledger (blank = Transporting expenses)",
-            "other2_exp": "Other2 ledger (blank = Transporting expenses)",
+            "other1_exp": "Other1 ledger (Journal, Owner Cr)",
+            "other2_exp": "Other2 ledger (Journal, Owner Cr)",
+            "extra_payment": "Advances more than freight - Cr ledger",
             "transport_exp": "Transporting expenses ledger",
             "cash": "Cash ledger",
             "discount": "Discount ledger",
@@ -441,20 +442,14 @@ def ledger_tab(session, company: Company) -> None:
             "Other1 / Other2 columns", om_opts,
             index=om_opts.index(names.get("other_mode", "advance")) if names.get("other_mode", "advance") in om_opts else 0,
             format_func=lambda m: {
-                "advance": "Advance already given to the truck owner - reduces Transporting Expenses "
+                "advance": "Advance to the truck owner - reduces Transporting Expenses "
                            "(Transporting Exp. = Amt − Comm − Diesel − Diesel cash − Office cash − Other1 − Other2) "
-                           "and is posted as Payment: Other Expenses Dr / paid-from ledger Cr",
+                           "and is posted as Journal: Transporting Other Expenses Dr / Owner Cr",
                 "deduction": "Deduction kept back from the owner - credited to the Other deduction 1/2 ledgers",
             }[m],
             label_visibility="collapsed", key="other_mode_radio",
         )
         new_names["other_mode"] = other_mode
-        if other_mode == "advance":
-            o1, o2 = st.columns(2)
-            new_names["other1_from"] = o1.text_input(
-                "Other1 paid from (Cash / Bank ledger)", value=names.get("other1_from", "Cash"), key="other1_from")
-            new_names["other2_from"] = o2.text_input(
-                "Other2 paid from (Cash / Bank ledger)", value=names.get("other2_from", "Cash"), key="other2_from")
 
     if style == "transporter":
         st.markdown("**Voucher number**")

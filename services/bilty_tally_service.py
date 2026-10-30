@@ -95,9 +95,11 @@ DEFAULT_LEDGER_NAMES = {
     "other_mode": "advance",
     # Dr ledger for cash paid from office and the Other1/Other2 advances.
     # Blank = the Transporting Expenses ledger (they are part of the truck hire).
-    "office_exp": "",
-    "other1_exp": "",
-    "other2_exp": "",
+    "office_exp": "Transporting Expenses Cash",
+    "other1_exp": "Transporting Other Expenses",
+    "other2_exp": "Transporting Other Expenses",
+    # Cr ledger when advances are more than the truck hire (owner Dr).
+    "extra_payment": "Extra Payment to Party",
     "other1_from": "Cash",       # ledger the Other1 advance was paid from
     "other2_from": "Cash",
     "vchno_sales": "yes",
@@ -124,7 +126,7 @@ DEFAULT_POSTING_STYLE = "transporter"
 # full freight amount. The choice travels inside the ledger-names dict
 # under POST_KINDS_KEY so every builder sees the same setting.
 VOUCHER_KINDS = {
-    "PAY": "Payment - Cash from office, Other1/Other2 advances (Other Expenses Dr / Cash Cr)",
+    "PAY": "Journal - Cash from office & Other1/Other2 (Transporting Expenses Cash / Transporting Other Expenses Dr / Owner Cr)",
     "TDS": "Journal - TDS (TDS Dr / Party Cr)",
     "DSL": "Journal - Diesel + Cash from pump (Diesel/Other Exp. Dr / Pump Cr)",
     "TRN": "Journal - Transporting Expenses (Transporting Exp. Dr / Owner Cr)",
@@ -578,7 +580,7 @@ def build_row(source_row: int, values: Dict[str, object], names: Dict[str, str],
             # owes the transporter. Posted, not skipped - see transporter_vouchers.
             row.warning = (
                 f"Advances are more than the freight - owner {row.owner} owes you "
-                f"{-row.owner_payable:,.2f} (posted as Owner Dr)."
+                f"{-row.owner_payable:,.2f} (posted as Owner Dr / Extra Payment to Party Cr)."
             )
 
     excel_balance = cell("balance")
@@ -986,9 +988,9 @@ def transporter_vouchers(r: "ProcessedRow", names: Dict[str, str], ctag: str = "
     """(voucher type, xml, remote id, amount) for one row, in the same order they appear in
     the Tally Day Book when entered by hand:
 
-      Payment  TRANSPORTING EXPENSES Dr / Cash Cr     - cash from office
-      Payment  TRANSPORTING EXPENSES Dr / Cash Cr     - Other1 / Other2 advances
-               (own ledgers can be set instead in Settings)
+      Journal  Transporting Expenses Cash Dr / Owner Cr   - cash from office
+      Journal  Transporting Other Expenses Dr / Owner Cr  - Other1 + Other2
+      (advances more than the hire: Owner Dr / Extra Payment to Party Cr)
       Journal  TDS Dr / Party Cr                       - TDS deducted by party
       Journal  DIESEL EXPENSES Dr (+ OTHER EXPENSES Dr - cash from pump)
                / Petrol pump Cr                        - diesel slip
@@ -1012,16 +1014,22 @@ def transporter_vouchers(r: "ProcessedRow", names: Dict[str, str], ctag: str = "
         rid = voucher_remote_id(ctag, r, kind) if ctag else None
         out.append((vtype, _voucher(vtype, r, narration, entries, remote_id=rid, **kw), rid, amount))
 
+    # Cash from office and the Other1/Other2 advances: Journal vouchers that
+    # book the expense against the truck owner (no Payment voucher).
     if r.cash_office:
-        add("Payment", "PAY", r.cash_office, f"Cash paid from office to {r.owner} - {tag}",
-            _dr(names.get("office_exp") or names["transport_exp"], r.cash_office) + _cr(names["cash"], r.cash_office))
+        add("Journal", "PAY", r.cash_office, f"Cash from office - truck {r.owner} - {tag}",
+            _dr(names.get("office_exp") or "Transporting Expenses Cash", r.cash_office)
+            + _cr(r.owner, r.cash_office))
 
-    for key, paid_from, amt in r.other_advances:
-        exp = names.get(f"{key}_exp") or names["transport_exp"]
-        label = "Other1" if key == "other1" else "Other2"
-        add("Payment", "OT1" if key == "other1" else "OT2", amt,
-            f"{label} advance paid to {r.owner} - {tag}",
-            _dr(exp, amt) + _cr(paid_from, amt))
+    if r.other_advances:
+        dr: Dict[str, float] = {}
+        for key, _paid_from, amt in r.other_advances:
+            exp = names.get(f"{key}_exp") or "Transporting Other Expenses"
+            dr[exp] = round(dr.get(exp, 0) + amt, 2)
+        total = round(sum(dr.values()), 2)
+        parts = " + ".join(f"{'Other1' if k == 'other1' else 'Other2'} {a:.2f}" for k, _, a in r.other_advances)
+        add("Journal", "OTH", total, f"{parts} - truck {r.owner} - {tag}",
+            "".join(_dr(l, a) for l, a in dr.items()) + _cr(r.owner, total))
 
     if r.tds:
         add("Journal", "TDS", r.tds, f"TDS deducted by {r.party} on freight - {tag}",
@@ -1043,7 +1051,11 @@ def transporter_vouchers(r: "ProcessedRow", names: Dict[str, str], ctag: str = "
     if r.transport_amount or r.owner_payable or r.other_deductions:
         # Signed lines (+ = debit). Normally Transporting Exp. Dr / Owner Cr;
         # when advances exceed the hire the signs flip and the owner is debited.
-        lines = [(names["transport_exp"], r.transport_amount), (r.owner, -r.owner_payable)]
+        # Advances more than the hire: the negative amount goes to "Extra
+        # Payment to Party" (Cr), the owner is debited.
+        te_ledger = (names.get("extra_payment") or "Extra Payment to Party") if r.transport_amount < 0 \
+            else names["transport_exp"]
+        lines = [(te_ledger, r.transport_amount), (r.owner, -r.owner_payable)]
         lines += [(ledger, -amt) for ledger, amt in r.other_deductions]
         lines = [(l, round(a, 2)) for l, a in lines if round(a, 2)]
         lines.sort(key=lambda la: la[1] < 0)          # debits first, like Tally shows
@@ -1081,7 +1093,7 @@ def _transporter_masters(rows: List["ProcessedRow"], names: Dict[str, str]) -> L
         names["tds"]: "Loans & Advances (Asset)",
         names["diesel_exp"]: "Direct Expenses",
         names["other_exp"]: "Indirect Expenses",
-        **{names[k]: "Indirect Expenses" for k in ("office_exp", "other1_exp", "other2_exp") if names.get(k)},
+        **{names[k]: "Direct Expenses" for k in ("office_exp", "other1_exp", "other2_exp", "extra_payment") if names.get(k)},
         names["transport_exp"]: "Direct Expenses",
         names["discount"]: "Indirect Incomes",
         names["other1"]: "Indirect Incomes",

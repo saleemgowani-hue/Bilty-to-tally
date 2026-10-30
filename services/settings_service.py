@@ -50,6 +50,7 @@ LEDGER_NAME_KEYS = {
     "office_exp": "ledger_office_exp",
     "other1_exp": "ledger_other1_exp",
     "other2_exp": "ledger_other2_exp",
+    "extra_payment": "ledger_extra_payment",
     "other1_from": "ledger_other1_from",
     "other2_from": "ledger_other2_from",
     "vchno_sales": "vchno_sales",

@@ -54,9 +54,10 @@ class Settings:
         "BRAND_TAGLINE", "Smart Software Solutions for Growing Businesses"
     )
     SUPPORT_CONTACT = os.getenv("SUPPORT_CONTACT", "9993199719")
-    APP_VERSION = "1.7.3"
+    APP_VERSION = "1.8.0"
     BUILD_DATE = "2026-10-26"
     CHANGELOG = [
+        ("1.8.0", "Cash from office & Other1/Other2 as Journals (Owner Cr); Extra Payment to Party for advances over freight"),
         ("1.7.3", "Cash from office & Other1/Other2 go to Transporting Expenses; Sales item always FREIGHT (goods in narration)"),
         ("1.7.2", "Separate ledgers: CASH FROM OFFICE, OTHER EXPENSES 1, OTHER EXPENSES 2"),
         ("1.7.1", "Warns when one Excel column is mapped to two fields"),
